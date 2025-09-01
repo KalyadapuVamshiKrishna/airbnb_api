@@ -34,9 +34,6 @@ app.use(cors({
 app.use("/uploads", express.static("uploads"));
 
 // API routes
-app.use("/",(req,res)=>{
-  res.send("API is running")
-})
 app.use("/api", authRoutes);
 app.use("/api", placeRoutes);
 app.use("/api", bookingRoutes);
