@@ -17,7 +17,7 @@ export const createPlace = async (req, res) => {
       maxGuests,
       price,
     });
-    res.json(place);
+    res.status(201).json(place);
   } catch (err) {
     res.status(422).json({ message: err.message });
   }
@@ -39,11 +39,42 @@ export const editPlace = async (req, res) => {
   }
 };
 
-// Get all places (public)
+// ✅ Get all places with Pagination, Search, and Sorting
 export const getAllPlaces = async (req, res) => {
   try {
-    const places = await Place.find();
-    res.json(places);
+    const { location, priceMin, priceMax, page = 1, limit = 6 } = req.query;
+
+    const query = {};
+
+    // Filter by location (case-insensitive partial match)
+    if (location && location !== "all locations") {
+      query.address = { $regex: location, $options: "i" };
+    }
+
+    // Filter by price range
+    if (priceMin || priceMax) {
+      query.price = {};
+      if (priceMin) query.price.$gte = Number(priceMin);
+      if (priceMax) query.price.$lte = Number(priceMax);
+    }
+
+    // Pagination
+    const skip = (page - 1) * limit;
+
+    // Fetch filtered places with pagination
+    const places = await Place.find(query)
+      .sort({ createdAt: -1 }) // Newest first
+      .skip(skip)
+      .limit(Number(limit));
+
+    const total = await Place.countDocuments(query);
+
+    res.json({
+      places,
+      total,
+      currentPage: Number(page),
+      totalPages: Math.ceil(total / limit),
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
