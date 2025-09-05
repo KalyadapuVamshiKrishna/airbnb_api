@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import { jwtSecret } from "../middlewares/auth.js";
+import * as z from "zod";
 
 const bcryptSalt = bcrypt.genSaltSync(10);
 
@@ -9,6 +10,11 @@ const bcryptSalt = bcrypt.genSaltSync(10);
 export const register = async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
+    const userSchema = z.object({
+      name : z.string(),
+      email : z.email(),
+      password : z.string()
+    })
 
     if (!name || !email || !password) {
       return res.status(400).json({ error: "Name, email, and password are required" });

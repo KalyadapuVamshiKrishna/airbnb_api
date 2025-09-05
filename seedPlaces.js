@@ -95,7 +95,7 @@ async function seed() {
 
     await Place.deleteMany();
 
-    const places = Array.from({ length: 50 }).map((_, index) => {
+    const places = Array.from({ length: 52 }).map((_, index) => {
       const randomHouseImage = faker.helpers.arrayElement(houseImages);
       const randomPerks = faker.helpers.arrayElements(perksOptions, 3);
       const addressData = generateIndianAddress();

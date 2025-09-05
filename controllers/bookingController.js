@@ -16,6 +16,7 @@ export const createBooking = async (req, res) => {
       name,
       phone,
       price,
+      address,
       user: req.user ? req.user.id : null,
     };
 

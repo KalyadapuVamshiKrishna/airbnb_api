@@ -1,6 +1,6 @@
 import express from "express";
 import { 
-  createPlace, editPlace, getAllPlaces, getPlaceById, getUserPlaces 
+  createPlace, editPlace, getAllPlaces, getPlaceById, getUserPlaces , deletePlace
 } from "../controllers/placeController.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { requireHost } from "../middlewares/role.js";
@@ -17,5 +17,7 @@ router.get("/places/:id", getPlaceById);
 
 // Only hosts can view their own places
 router.get("/user-places", requireAuth, requireHost, getUserPlaces);
+router.delete('/places/:id',requireAuth, requireHost, deletePlace);
+
 
 export default router;

@@ -11,7 +11,7 @@ const bookingSchema = new mongoose.Schema({
   name: { type: String, required: true },
   phone: { type: String, required: true },
   price: { type: Number, required: true },
-  address: { type: String }, // optional
+  address: { type: String },
   type: { type: String, required: true }, // 'place' | 'experience' | 'service'
   status: { type: String, default: "booked" },
   refundRequested: { type: Boolean, default: false },
