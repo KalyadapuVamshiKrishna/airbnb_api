@@ -27,7 +27,7 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(cors({
   credentials: true,
-  origin:"https://domio-client.vercel.app",
+  origin:true,
 }));
 
 // Static folder for uploads (if needed)
