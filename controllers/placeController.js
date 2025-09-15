@@ -1,4 +1,5 @@
 import Place from "../models/Place.js";
+import User from "../models/User.js";
 
 /**
  * @desc Create a new place (only for hosts)
@@ -36,6 +37,7 @@ export const createPlace = async (req, res) => {
 
     res.status(201).json(place);
   } catch (err) {
+    console.error("Error creating place:", err);
     res.status(422).json({ message: err.message });
   }
 };
@@ -61,70 +63,128 @@ export const editPlace = async (req, res) => {
 
     res.json(place);
   } catch (err) {
+    console.error("Error editing place:", err);
     res.status(422).json({ message: err.message });
   }
 };
 
+
+
 /**
- * @desc Get all places with filters (Pagination, Search, Sorting)
+ * @desc Get all places with filters and wishlist flag
  * @route GET /api/places
- * @access Public
+ * @access Private (wishlist only if logged in)
  */
 export const getAllPlaces = async (req, res) => {
   try {
-    const { location, priceMin, priceMax, page = 1, limit = 6 } = req.query;
+    const {
+      location,
+      priceMin,
+      priceMax,
+      page = 1,
+      limit = 6,
+      sortBy = "newest", // default sort
+    } = req.query;
 
     const query = {};
 
-    // Filter by location (case-insensitive)
-    if (location && location !== "all locations") {
-      query.address = { $regex: location, $options: "i" };
+    // Location filter
+    if (location && location.toLowerCase() !== "all locations") {
+      const regex = new RegExp(location, "i");
+      query.$or = [
+        { city: regex },
+        { state: regex },
+        { country: regex },
+        { address: regex },
+      ];
     }
 
-    // Filter by price range
+    // Price filter
     if (priceMin || priceMax) {
       query.price = {};
       if (priceMin) query.price.$gte = Number(priceMin);
       if (priceMax) query.price.$lte = Number(priceMax);
     }
 
-    // Pagination
-    const skip = (page - 1) * limit;
+    // Sorting logic
+    let sortOption = {};
+    switch (sortBy) {
+      case "priceAsc":
+        sortOption = { price: 1 }; // low to high
+        break;
+      case "priceDesc":
+        sortOption = { price: -1 }; // high to low
+        break;
+      case "newest":
+      default:
+        sortOption = { createdAt: -1 }; // newest first
+        break;
+    }
 
-    // Fetch filtered places with pagination
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const skip = (pageNum - 1) * limitNum;
+
     const places = await Place.find(query)
-      .sort({ createdAt: -1 }) // newest first
+      .sort(sortOption)
       .skip(skip)
-      .limit(Number(limit));
+      .limit(limitNum);
 
     const total = await Place.countDocuments(query);
 
+    // Wishlist info
+    let wishlistSet = new Set();
+    if (req.user?.id) {
+      const user = await User.findById(req.user.id).select("wishlist");
+      if (user?.wishlist?.length) {
+        wishlistSet = new Set(user.wishlist.map((id) => id.toString()));
+      }
+    }
+
+    const enrichedPlaces = places.map((p) => ({
+      ...p.toObject(),
+      isFavorite: wishlistSet.has(p._id.toString()),
+    }));
+
     res.json({
-      places,
+      places: enrichedPlaces,
       total,
-      currentPage: Number(page),
-      totalPages: Math.ceil(total / limit),
+      currentPage: pageNum,
+      totalPages: Math.ceil(total / limitNum),
     });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err);
+    res
+      .status(500)
+      .json({ message: "Failed to fetch places", error: err.message });
   }
 };
 
 /**
- * @desc Get a single place by ID
+ * @desc Get a single place by ID (with wishlist flag)
  * @route GET /api/places/:id
- * @access Public
+ * @access Public (wishlist only if logged in)
  */
 export const getPlaceById = async (req, res) => {
   try {
     const place = await Place.findById(req.params.id);
     if (!place) return res.status(404).json({ message: "Place not found" });
 
-    res.json(place);
+    let isFavorite = false;
+    if (req.user?.id) {
+      const user = await User.findById(req.user.id).select("wishlist");
+      isFavorite = user?.wishlist?.map((id) => id.toString()).includes(place._id.toString()) || false;
+    }
+
+    res.json({ ...place.toObject(), isFavorite });
+    console.log("Enriched places:", enrichedPlaces.map(p => ({ id: p._id, isFavorite: p.isFavorite })));
+
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch place", error: err.message });
   }
 };
+
 
 /**
  * @desc Get places created by the logged-in user
@@ -133,9 +193,10 @@ export const getPlaceById = async (req, res) => {
  */
 export const getUserPlaces = async (req, res) => {
   try {
-    const places = await Place.find({ owner: req.user.id });
+    const places = await Place.find({ owner: req.user.id }).sort({ createdAt: -1 });
     res.json(places);
   } catch (err) {
+    console.error("Error fetching user places:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -159,6 +220,7 @@ export const deletePlace = async (req, res) => {
     await place.deleteOne();
     res.json({ message: "Place deleted successfully" });
   } catch (err) {
+    console.error("Error deleting place:", err);
     res.status(500).json({ message: err.message });
   }
 };

@@ -4,6 +4,10 @@ import {
 } from "../controllers/placeController.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { requireHost } from "../middlewares/role.js";
+import {
+  toggleWishlist,
+  getWishlist,
+} from "../controllers/wishlistController.js";
 
 const router = express.Router();
 
@@ -18,6 +22,10 @@ router.get("/places/:id", getPlaceById);
 // Only hosts can view their own places
 router.get("/user-places", requireAuth, requireHost, getUserPlaces);
 router.delete('/places/:id',requireAuth, requireHost, deletePlace);
+
+router.post("/places/:id/toggle-wishlist", requireAuth, toggleWishlist);
+router.get("/wishlist", requireAuth, getWishlist);
+
 
 
 export default router;

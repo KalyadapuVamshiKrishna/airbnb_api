@@ -16,9 +16,7 @@ const houseImages = [
   "https://images.unsplash.com/photo-1583608205776-bfd35f0d9f83?w=600&auto=format&fit=crop&q=60",
   "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=600&auto=format&fit=crop&q=60",
   "https://plus.unsplash.com/premium_photo-1661883964999-c1bcb57a7357?w=600&auto=format&fit=crop&q=60",
-  "https://plus.unsplash.com/premium_photo-1661962841993-99a07c27c9f4?w=600&auto=format&fit=crop&q=60",
   "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=600&auto=format&fit=crop&q=60",
-  "https://images.unsplash.com/photo-1588880331179-bc9b93a8cb5e?w=600&auto=format&fit=crop&q=60",
 ];
 
 // ✅ Interior Images
@@ -26,15 +24,9 @@ const interiorImages = [
   "https://plus.unsplash.com/premium_photo-1671269941569-7841144ee4e0?w=600&auto=format&fit=crop&q=60",
   "https://images.unsplash.com/photo-1599696848652-f0ff23bc911f?w=600&auto=format&fit=crop&q=60",
   "https://images.unsplash.com/photo-1618220179428-22790b461013?w=600&auto=format&fit=crop&q=60",
-  "https://plus.unsplash.com/premium_photo-1670360414946-e33a828d1d52?w=600&auto=format&fit=crop&q=60",
   "https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?w=600&auto=format&fit=crop&q=60",
   "https://images.unsplash.com/photo-1615529182904-14819c35db37?w=600&auto=format&fit=crop&q=60",
   "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=600&auto=format&fit=crop&q=60",
-  "https://images.unsplash.com/photo-1567016376408-0226e4d0c1ea?w=600&auto=format&fit=crop&q=60",
-  "https://images.unsplash.com/photo-1605774337664-7a846e9cdf17?w=600&auto=format&fit=crop&q=60",
-  "https://images.unsplash.com/photo-1634712282287-14ed57b9cc89?w=600&auto=format&fit=crop&q=60",
-  "https://images.unsplash.com/photo-1569350080887-dd38c27caad0?w=600&auto=format&fit=crop&q=60",
-  "https://images.unsplash.com/photo-1589834390005-5d4fb9bf3d32?w=600&auto=format&fit=crop&q=60",
 ];
 
 // ✅ Helper: Get random interiors
@@ -66,7 +58,43 @@ const statesWithCities = {
   Gujarat: ["Ahmedabad", "Surat", "Vadodara"],
 };
 
-// ✅ Generate Indian Address
+// ✅ Titles (curated)
+const propertyTitles = [
+  "Luxury Beach Villa",
+  "Cozy Homestay",
+  "Modern City Apartment",
+  "Rustic Heritage Haveli",
+  "Peaceful Farm Retreat",
+  "Elegant Serviced Apartment",
+  "Hillside Cottage with View",
+  "Boutique Stay in Old Town",
+  "Traditional Kerala House",
+  "Lakefront Holiday Home",
+];
+
+// ✅ Descriptions (curated)
+const propertyDescriptions = [
+  "A beautiful stay with modern amenities, close to popular attractions.",
+  "Perfect for families and groups, with spacious interiors and a private garden.",
+  "Enjoy a peaceful vacation in a home surrounded by nature and fresh air.",
+  "Located in the heart of the city, with easy access to shopping and dining.",
+  "A heritage-style stay with a blend of tradition and modern comfort.",
+  "Wake up to stunning sunrise views and enjoy evenings on the terrace.",
+  "Ideal for long stays with fully equipped kitchen and work desk.",
+  "Pet-friendly and kid-friendly home, perfect for a relaxed vacation.",
+  "Stay close to beaches and enjoy local seafood and culture.",
+];
+
+// ✅ Extra Info (curated)
+const extraInfoOptions = [
+  "No loud music after 10 PM.",
+  "Smoking allowed only in outdoor areas.",
+  "Pets are welcome with prior notice.",
+  "Guests must show valid ID proof at check-in.",
+  "Please switch off AC and lights when not in use.",
+  "Breakfast available on request.",
+];
+
 function generateIndianAddress() {
   const state = faker.helpers.objectKey(statesWithCities);
   const city = faker.helpers.arrayElement(statesWithCities[state]);
@@ -95,23 +123,23 @@ async function seed() {
 
     await Place.deleteMany();
 
-    const places = Array.from({ length: 52 }).map((_, index) => {
+    const places = Array.from({ length: 32 }).map(() => {
       const randomHouseImage = faker.helpers.arrayElement(houseImages);
       const randomPerks = faker.helpers.arrayElements(perksOptions, 3);
       const addressData = generateIndianAddress();
 
       return {
         owner: user._id,
-        title: `${faker.company.name()} Stay`,
+        title: faker.helpers.arrayElement(propertyTitles),
         address: addressData.fullAddress,
         city: addressData.city,
         state: addressData.state,
         country: "India",
         pincode: addressData.pincode,
-        photos: [randomHouseImage, ...getRandomInteriors(2 + Math.floor(Math.random() * 2))],
-        description: faker.lorem.paragraph(),
+        photos: [randomHouseImage, ...getRandomInteriors(2)],
+        description: faker.helpers.arrayElement(propertyDescriptions),
         perks: randomPerks,
-        extraInfo: faker.lorem.sentence(),
+        extraInfo: faker.helpers.arrayElement(extraInfoOptions),
         checkIn: 12,
         checkOut: 11,
         maxGuests: faker.number.int({ min: 2, max: 8 }),
@@ -122,7 +150,7 @@ async function seed() {
     });
 
     await Place.insertMany(places);
-    console.log("✅ 50 Indian-style places seeded successfully!");
+    console.log("✅ 30 curated Indian-style places seeded successfully!");
     process.exit();
   } catch (error) {
     console.error(error);

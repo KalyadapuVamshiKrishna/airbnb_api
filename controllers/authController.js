@@ -3,6 +3,8 @@ import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import { jwtSecret } from "../middlewares/auth.js";
 import * as z from "zod";
+import Place from "../models/Place.js";
+import Booking from "../models/Booking.js"
 
 const bcryptSalt = bcrypt.genSaltSync(10);
 
@@ -50,7 +52,7 @@ export const login = async (req, res) => {
 
     res.cookie("token", token, {
       httpOnly: true,
-      sameSite: "lax", // use 'none' + secure:true in production if needed
+      sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
     });
 
@@ -71,6 +73,14 @@ export const profile = async (req, res) => {
     console.error("Profile Error:", err);
     res.status(500).json({ error: "Failed to fetch profile" });
   }
+};
+
+export const stats= async (req, res) => {
+  const userId = req.user._id;
+  const listingsCount = await Place.countDocuments({ owner: req.user.id });
+  const tripsCount = await Booking.countDocuments({ user: req.user.id });
+
+  res.json({ listingsCount, tripsCount });
 };
 
 // LOGOUT
