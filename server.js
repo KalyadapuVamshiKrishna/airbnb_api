@@ -22,12 +22,18 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+const allowedOrigins = [
+      'http://localhost:5173',
+      'https://domio-client.vercel.app' ]
+
+
 // Middleware
 app.use(express.json());
 app.use(cookieParser());
 app.use(cors({
+  origin:allowedOrigins,
   credentials: true,
-  origin:"https://domio-client.vercel.app",
+ 
 }));
 
 // Static folder for uploads (if needed)
