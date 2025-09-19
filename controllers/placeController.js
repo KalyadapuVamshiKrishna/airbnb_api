@@ -18,6 +18,9 @@ export const createPlace = async (req, res) => {
     checkOut,
     maxGuests,
     price,
+    city,
+    state,
+    country,
   } = req.body;
 
   try {
@@ -33,6 +36,9 @@ export const createPlace = async (req, res) => {
       checkOut,
       maxGuests,
       price,
+      city,
+      state,
+      country,
     });
 
     res.status(201).json(place);
@@ -43,7 +49,7 @@ export const createPlace = async (req, res) => {
 };
 
 /**
- * @desc Edit an existing place (only by the owner host)
+ * @desc Edit an existing place (only by the owner)
  * @route PUT /api/places/:id
  * @access Private
  */
@@ -68,12 +74,10 @@ export const editPlace = async (req, res) => {
   }
 };
 
-
-
 /**
- * @desc Get all places with filters and wishlist flag
+ * @desc Get all places with optional filters, search, and wishlist info
  * @route GET /api/places
- * @access Private (wishlist only if logged in)
+ * @access Public (wishlist only if logged in)
  */
 export const getAllPlaces = async (req, res) => {
   try {
@@ -83,12 +87,13 @@ export const getAllPlaces = async (req, res) => {
       priceMax,
       page = 1,
       limit = 6,
-      sortBy = "newest", // default sort
+      sortBy = "newest",
+      search,
     } = req.query;
 
     const query = {};
 
-    // Location filter
+    // --- Location filter ---
     if (location && location.toLowerCase() !== "all locations") {
       const regex = new RegExp(location, "i");
       query.$or = [
@@ -99,32 +104,47 @@ export const getAllPlaces = async (req, res) => {
       ];
     }
 
-    // Price filter
+    // --- Price filter ---
     if (priceMin || priceMax) {
       query.price = {};
       if (priceMin) query.price.$gte = Number(priceMin);
       if (priceMax) query.price.$lte = Number(priceMax);
     }
 
-    // Sorting logic
+    // --- Live search filter ---
+    if (search && search.trim() !== "") {
+      const regex = new RegExp(search, "i");
+      query.$or = [
+        { title: regex },
+        { description: regex },
+        { city: regex },
+        { state: regex },
+        { country: regex },
+        { address: regex },
+      ];
+    }
+
+    // --- Sorting ---
     let sortOption = {};
     switch (sortBy) {
       case "priceAsc":
-        sortOption = { price: 1 }; // low to high
+        sortOption = { price: 1 };
         break;
       case "priceDesc":
-        sortOption = { price: -1 }; // high to low
+        sortOption = { price: -1 };
         break;
       case "newest":
       default:
-        sortOption = { createdAt: -1 }; // newest first
+        sortOption = { createdAt: -1 };
         break;
     }
 
+    // --- Pagination ---
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);
     const skip = (pageNum - 1) * limitNum;
 
+    // --- Fetch places ---
     const places = await Place.find(query)
       .sort(sortOption)
       .skip(skip)
@@ -132,7 +152,7 @@ export const getAllPlaces = async (req, res) => {
 
     const total = await Place.countDocuments(query);
 
-    // Wishlist info
+    // --- Wishlist enrichment ---
     let wishlistSet = new Set();
     if (req.user?.id) {
       const user = await User.findById(req.user.id).select("wishlist");
@@ -153,15 +173,13 @@ export const getAllPlaces = async (req, res) => {
       totalPages: Math.ceil(total / limitNum),
     });
   } catch (err) {
-    console.error(err);
-    res
-      .status(500)
-      .json({ message: "Failed to fetch places", error: err.message });
+    console.error("Error fetching places:", err);
+    res.status(500).json({ message: "Failed to fetch places", error: err.message });
   }
 };
 
 /**
- * @desc Get a single place by ID (with wishlist flag)
+ * @desc Get a single place by ID (with wishlist info)
  * @route GET /api/places/:id
  * @access Public (wishlist only if logged in)
  */
@@ -177,14 +195,11 @@ export const getPlaceById = async (req, res) => {
     }
 
     res.json({ ...place.toObject(), isFavorite });
-    console.log("Enriched places:", enrichedPlaces.map(p => ({ id: p._id, isFavorite: p.isFavorite })));
-
   } catch (err) {
-    console.error(err);
+    console.error("Error fetching place:", err);
     res.status(500).json({ message: "Failed to fetch place", error: err.message });
   }
 };
-
 
 /**
  * @desc Get places created by the logged-in user
