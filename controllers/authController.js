@@ -50,14 +50,14 @@ export const login = async (req, res) => {
 
     const token = jwt.sign({ email: user.email, id: user._id, role: user.role }, jwtSecret, { expiresIn: "7d" });
 
+res.cookie("token", token, {
+  httpOnly: true,
+  sameSite: "None",   // must be None for cross-site cookies
+  secure: true,       // required by Chrome when SameSite=None
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+  path: "/",
+});
 
-    res.cookie("token", token, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 7 * 24 * 60 * 60 * 1000, 
-      path: "/",  
-    });
 
     res.json({ _id: user._id, name: user.name, email: user.email, role: user.role });
   } catch (err) {
