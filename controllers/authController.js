@@ -1,76 +1,98 @@
+// controllers/authController.js
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import User from "../models/User.js";
-import { jwtSecret } from "../middlewares/auth.js";
 import * as z from "zod";
+
+import User from "../models/User.js";
 import Place from "../models/Place.js";
-import Booking from "../models/Booking.js"
+import Booking from "../models/Booking.js";
+import { jwtSecret } from "../middlewares/auth.js";
 
-const bcryptSalt = bcrypt.genSaltSync(10);
-
-// REGISTER
+// ====================== REGISTER ======================
 export const register = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
     const userSchema = z.object({
-      name : z.string(),
-      email : z.email(),
-      password : z.string()
-    })
+      name: z.string().min(2, "Name is too short"),
+      email: z.string().email("Invalid email format"),
+      password: z.string().min(6, "Password must be at least 6 characters"),
+      role: z.string().optional(),
+    });
 
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: "Name, email, and password are required" });
-    }
+    const { name, email, password, role } = userSchema.parse(req.body);
 
     const existingUser = await User.findOne({ email });
-    if (existingUser) return res.status(409).json({ error: "Email already registered" });
+    if (existingUser) {
+      return res.status(409).json({ error: "Email already registered" });
+    }
 
-    const hashedPassword = bcrypt.hashSync(password, bcryptSalt);
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    const user = await User.create({ name, email, password: hashedPassword, role: role || "customer" });
-    res.status(201).json({ _id: user._id, name: user.name, email: user.email, role: user.role });
-  } catch (e) {
-    console.error("Register Error:", e);
+    const user = await User.create({
+      name,
+      email,
+      password: hashedPassword,
+      role: role || "customer",
+    });
+
+    res.status(201).json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    });
+  } catch (err) {
+    console.error("Register Error:", err);
+    if (err.errors) return res.status(400).json({ error: err.errors });
     res.status(500).json({ error: "Registration failed" });
   }
 };
 
-// LOGIN
+// ====================== LOGIN ======================
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
+    if (!email || !password)
+      return res.status(400).json({ error: "Email and password are required" });
 
     const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    const passOk = bcrypt.compareSync(password, user.password);
-    if (!passOk) return res.status(401).json({ error: "Wrong password" });
+    const passOk = await bcrypt.compare(password, user.password);
+    if (!passOk) return res.status(401).json({ error: "Invalid credentials" });
 
-    const token = jwt.sign({ email: user.email, id: user._id, role: user.role }, jwtSecret, { expiresIn: "7d" });
+    const token = jwt.sign(
+      { email: user.email, id: user._id, role: user.role },
+      jwtSecret,
+      { expiresIn: "7d" }
+    );
 
-res.cookie("token", token, {
-  httpOnly: true,
-  sameSite: "None",   // must be None for cross-site cookies
-  secure: true,       // required by Chrome when SameSite=None
-  maxAge: 7 * 24 * 60 * 60 * 1000,
-  path: "/",
-});
+    res.cookie("token", token, {
+      httpOnly: true,
+      sameSite: "None", // required for cross-site cookies
+      secure: true, // required with SameSite=None
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: "/",
+    });
 
-
-    res.json({ _id: user._id, name: user.name, email: user.email, role: user.role });
+    res.json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    });
   } catch (err) {
     console.error("Login Error:", err);
     res.status(500).json({ error: "Login failed" });
   }
 };
 
-// PROFILE
+// ====================== PROFILE ======================
 export const profile = async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select("-password");
     if (!user) return res.status(404).json({ error: "User not found" });
+
     res.json(user);
   } catch (err) {
     console.error("Profile Error:", err);
@@ -78,31 +100,43 @@ export const profile = async (req, res) => {
   }
 };
 
-export const stats= async (req, res) => {
-  const userId = req.user._id;
-  const listingsCount = await Place.countDocuments({ owner: req.user.id });
-  const tripsCount = await Booking.countDocuments({ user: req.user.id });
+// ====================== USER STATS ======================
+export const stats = async (req, res) => {
+  try {
+    const listingsCount = await Place.countDocuments({ owner: req.user.id });
+    const tripsCount = await Booking.countDocuments({ user: req.user.id });
 
-  res.json({ listingsCount, tripsCount });
+    res.json({ listingsCount, tripsCount });
+  } catch (err) {
+    console.error("Stats Error:", err);
+    res.status(500).json({ error: "Failed to fetch stats" });
+  }
 };
 
-// LOGOUT
+// ====================== LOGOUT ======================
 export const logout = (req, res) => {
-  res.cookie("token", "", { httpOnly: true, expires: new Date(0) }).json({ success: true });
+  res.clearCookie("token", { httpOnly: true, path: "/" });
+  res.json({ success: true, message: "Logged out successfully" });
 };
 
-// BECOME HOST
+// ====================== BECOME HOST ======================
 export const becomeHost = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    if (user.role === "host") return res.status(400).json({ error: "You are already a host" });
+    if (user.role === "host") {
+      return res.status(400).json({ error: "You are already a host" });
+    }
 
     user.role = "host";
     await user.save();
 
-    res.json({ success: true, message: "You are now a host!", role: user.role });
+    res.json({
+      success: true,
+      message: "You are now a host!",
+      role: user.role,
+    });
   } catch (err) {
     console.error("Become Host Error:", err);
     res.status(500).json({ error: "Failed to become a host" });

@@ -1,5 +1,23 @@
 import Place from "../models/Place.js";
 import User from "../models/User.js";
+import * as z from "zod";
+
+// --- Validation Schemas ---
+const placeSchema = z.object({
+  title: z.string().min(3, "Title must be at least 3 characters"),
+  address: z.string().min(5, "Address is required"),
+  photos: z.array(z.string()).optional(),
+  description: z.string().min(10, "Description is too short"),
+  perks: z.array(z.string()).optional(),
+  extraInfo: z.string().optional(),
+  checkIn: z.string(),
+  checkOut: z.string(),
+  maxGuests: z.number().min(1, "At least 1 guest allowed"),
+  price: z.number().min(0, "Price must be positive"),
+  city: z.string(),
+  state: z.string(),
+  country: z.string(),
+});
 
 /**
  * @desc Create a new place (only for hosts)
@@ -7,44 +25,25 @@ import User from "../models/User.js";
  * @access Private
  */
 export const createPlace = async (req, res) => {
-  const {
-    title,
-    address,
-    photos,
-    description,
-    perks,
-    extraInfo,
-    checkIn,
-    checkOut,
-    maxGuests,
-    price,
-    city,
-    state,
-    country,
-  } = req.body;
-
   try {
+    if (req.user.role !== "host") {
+      return res.status(403).json({ error: "Only hosts can create places" });
+    }
+
+    const parsed = placeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.errors });
+    }
+
     const place = await Place.create({
       owner: req.user.id,
-      title,
-      address,
-      photos,
-      description,
-      perks,
-      extraInfo,
-      checkIn,
-      checkOut,
-      maxGuests,
-      price,
-      city,
-      state,
-      country,
+      ...parsed.data,
     });
 
     res.status(201).json(place);
   } catch (err) {
     console.error("Error creating place:", err);
-    res.status(422).json({ message: err.message });
+    res.status(500).json({ error: "Failed to create place" });
   }
 };
 
@@ -54,23 +53,26 @@ export const createPlace = async (req, res) => {
  * @access Private
  */
 export const editPlace = async (req, res) => {
-  const { id } = req.params;
-
   try {
-    const place = await Place.findById(id);
-    if (!place) return res.status(404).json({ message: "Place not found" });
+    const place = await Place.findById(req.params.id);
+    if (!place) return res.status(404).json({ error: "Place not found" });
 
     if (place.owner.toString() !== req.user.id) {
-      return res.status(403).json({ message: "Not allowed" });
+      return res.status(403).json({ error: "Not allowed" });
     }
 
-    Object.assign(place, req.body);
+    const parsed = placeSchema.partial().safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.errors });
+    }
+
+    Object.assign(place, parsed.data);
     await place.save();
 
     res.json(place);
   } catch (err) {
     console.error("Error editing place:", err);
-    res.status(422).json({ message: err.message });
+    res.status(500).json({ error: "Failed to edit place" });
   }
 };
 
@@ -174,7 +176,7 @@ export const getAllPlaces = async (req, res) => {
     });
   } catch (err) {
     console.error("Error fetching places:", err);
-    res.status(500).json({ message: "Failed to fetch places", error: err.message });
+    res.status(500).json({ error: "Failed to fetch places" });
   }
 };
 
@@ -186,18 +188,20 @@ export const getAllPlaces = async (req, res) => {
 export const getPlaceById = async (req, res) => {
   try {
     const place = await Place.findById(req.params.id);
-    if (!place) return res.status(404).json({ message: "Place not found" });
+    if (!place) return res.status(404).json({ error: "Place not found" });
 
     let isFavorite = false;
     if (req.user?.id) {
       const user = await User.findById(req.user.id).select("wishlist");
-      isFavorite = user?.wishlist?.map((id) => id.toString()).includes(place._id.toString()) || false;
+      isFavorite = user?.wishlist
+        ?.map((id) => id.toString())
+        .includes(place._id.toString());
     }
 
     res.json({ ...place.toObject(), isFavorite });
   } catch (err) {
     console.error("Error fetching place:", err);
-    res.status(500).json({ message: "Failed to fetch place", error: err.message });
+    res.status(500).json({ error: "Failed to fetch place" });
   }
 };
 
@@ -208,11 +212,13 @@ export const getPlaceById = async (req, res) => {
  */
 export const getUserPlaces = async (req, res) => {
   try {
-    const places = await Place.find({ owner: req.user.id }).sort({ createdAt: -1 });
+    const places = await Place.find({ owner: req.user.id }).sort({
+      createdAt: -1,
+    });
     res.json(places);
   } catch (err) {
     console.error("Error fetching user places:", err);
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ error: "Failed to fetch user places" });
   }
 };
 
@@ -222,20 +228,18 @@ export const getUserPlaces = async (req, res) => {
  * @access Private
  */
 export const deletePlace = async (req, res) => {
-  const { id } = req.params;
-
   try {
-    const place = await Place.findById(id);
-    if (!place) return res.status(404).json({ message: "Place not found" });
+    const place = await Place.findById(req.params.id);
+    if (!place) return res.status(404).json({ error: "Place not found" });
 
     if (place.owner.toString() !== req.user.id) {
-      return res.status(403).json({ message: "Not allowed" });
+      return res.status(403).json({ error: "Not allowed" });
     }
 
     await place.deleteOne();
     res.json({ message: "Place deleted successfully" });
   } catch (err) {
     console.error("Error deleting place:", err);
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ error: "Failed to delete place" });
   }
 };
