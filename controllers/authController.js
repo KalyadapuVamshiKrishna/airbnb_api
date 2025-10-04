@@ -11,22 +11,35 @@ import { jwtSecret } from "../middlewares/auth.js";
 // ====================== REGISTER ======================
 export const register = async (req, res) => {
   try {
+    // 1️⃣ Define Zod schema
     const userSchema = z.object({
-      name: z.string().min(2, "Name is too short"),
-      email: z.string().email("Invalid email format"),
-      password: z.string().min(6, "Password must be at least 6 characters"),
+      name: z.string().min(2, { message: "Name is too short" }),
+      email: z.string().email({ message: "Invalid email format" }),
+      password: z.string().min(6, { message: "Password must be at least 6 characters" }),
       role: z.string().optional(),
     });
 
-    const { name, email, password, role } = userSchema.parse(req.body);
+    // 2️⃣ Parse and validate request body
+    let parsed;
+    try {
+      parsed = userSchema.parse(req.body);
+    } catch (validationError) {
+      // If Zod validation fails, return 400 with detailed errors
+      return res.status(400).json({ error: validationError.errors });
+    }
 
+    const { name, email, password, role } = parsed;
+
+    // 3️⃣ Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(409).json({ error: "Email already registered" });
     }
 
+    // 4️⃣ Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // 5️⃣ Create user
     const user = await User.create({
       name,
       email,
@@ -34,6 +47,7 @@ export const register = async (req, res) => {
       role: role || "customer",
     });
 
+    // 6️⃣ Respond with created user (excluding password)
     res.status(201).json({
       _id: user._id,
       name: user.name,
@@ -42,7 +56,8 @@ export const register = async (req, res) => {
     });
   } catch (err) {
     console.error("Register Error:", err);
-    if (err.errors) return res.status(400).json({ error: err.errors });
+
+    // If error is from Mongoose or other unknown errors
     res.status(500).json({ error: "Registration failed" });
   }
 };

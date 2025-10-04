@@ -1,14 +1,51 @@
+// models/Experience.js (sketch)
 import mongoose from "mongoose";
 
-const experienceSchema = new mongoose.Schema({
+const ReviewSchema = new mongoose.Schema({
+  user: { name: String, avatar: String },
+  rating: Number,
   title: String,
-  location: String,
-  category: String, // e.g., Adventure, Cultural, Food, Wellness
-  description: String,
-  price: Number,
-  duration: String, // e.g., "3 hours"
-  host: String,
-  photos: [String], 
-});
+  comment: String,
+  createdAt: Date
+}, { _id: false });
 
-export default mongoose.model("Experience", experienceSchema);
+const ExperienceSchema = new mongoose.Schema({
+  title: String,
+  slug: String,
+  shortTitle: String,
+  description: String,
+  location: String,
+  coordinates: {
+    lat: Number,
+    lng: Number
+  },
+  category: String,
+  tags: [String],
+  photos: [String],
+  coverPhoto: String,
+  price: Number,
+  currency: { type: String, default: "INR" },
+  duration: String,
+  durationHours: Number,
+  maxGuests: Number,
+  minAge: Number,
+  cancellationPolicy: String,
+  languages: [String],
+  amenities: Object,
+  host: {
+    name: String,
+    avatar: String,
+    bio: String,
+    isSuperhost: Boolean
+  },
+  itinerary: [{ title: String, description: String, approxMinutes: Number }],
+  reviews: [ReviewSchema],
+  rating: Number,
+  reviewsCount: Number,
+  ratingBreakdown: Object,
+  availability: [String],
+  highlights: [String],
+  meetingPoint: String
+}, { timestamps: true });
+
+export default mongoose.model("Experience", ExperienceSchema);
