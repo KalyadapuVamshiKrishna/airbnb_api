@@ -1,4 +1,3 @@
-// controllers/authController.js
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import * as z from "zod";
@@ -11,7 +10,7 @@ import { jwtSecret } from "../middlewares/auth.js";
 // ====================== REGISTER ======================
 export const register = async (req, res) => {
   try {
-    // 1️⃣ Define Zod schema
+    //Zod schema
     const userSchema = z.object({
       name: z.string().min(2, { message: "Name is too short" }),
       email: z.string().email({ message: "Invalid email format" }),
@@ -19,7 +18,7 @@ export const register = async (req, res) => {
       role: z.string().optional(),
     });
 
-    // 2️⃣ Parse and validate request body
+    // Parse and validate request body
     let parsed;
     try {
       parsed = userSchema.parse(req.body);
@@ -30,16 +29,16 @@ export const register = async (req, res) => {
 
     const { name, email, password, role } = parsed;
 
-    // 3️⃣ Check if user already exists
+    // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(409).json({ error: "Email already registered" });
     }
 
-    // 4️⃣ Hash password
+    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 5️⃣ Create user
+    // Create user
     const user = await User.create({
       name,
       email,
@@ -47,7 +46,7 @@ export const register = async (req, res) => {
       role: role || "customer",
     });
 
-    // 6️⃣ Respond with created user (excluding password)
+    // Respond with created user (excluding password)
     res.status(201).json({
       _id: user._id,
       name: user.name,
@@ -84,8 +83,8 @@ export const login = async (req, res) => {
 
     res.cookie("token", token, {
       httpOnly: true,
-      sameSite: "None", // required for cross-site cookies
-      secure: true, // required with SameSite=None
+      sameSite: "None",
+      secure: true, 
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: "/",
     });

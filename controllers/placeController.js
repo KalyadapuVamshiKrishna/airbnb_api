@@ -2,37 +2,58 @@ import Place from "../models/Place.js";
 import User from "../models/User.js";
 import * as z from "zod";
 
-// --- Validation Schemas ---
+// --- Validation Schema ---
 const placeSchema = z.object({
   title: z.string().min(3, "Title must be at least 3 characters"),
   address: z.string().min(5, "Address is required"),
+  coordinates: z.object({
+    lat: z.number({ invalid_type_error: "Latitude must be a number" }),
+    lng: z.number({ invalid_type_error: "Longitude must be a number" }),
+  }),
   photos: z.array(z.string()).optional(),
   description: z.string().min(10, "Description is too short"),
   perks: z.array(z.string()).optional(),
   extraInfo: z.string().optional(),
-  checkIn: z.string(),
-  checkOut: z.string(),
+  checkIn: z.string().min(1, "Check-in time is required"),
+  checkOut: z.string().min(1, "Check-out time is required"),
   maxGuests: z.number().min(1, "At least 1 guest allowed"),
   price: z.number().min(0, "Price must be positive"),
-  city: z.string(),
-  state: z.string(),
-  country: z.string(),
+  city: z.string().min(1, "City is required"),
+  state: z.string().min(1, "State is required"),
+  country: z.string().min(1, "Country is required"),
 });
 
-/**
- * @desc Create a new place (only for hosts)
- * @route POST /api/places
- * @access Private
- */
+// --- Helper to format Zod errors ---
+function formatZodErrors(error) {
+  const fieldErrors = error.flatten().fieldErrors;
+  const formatted = {};
+  for (const [field, messages] of Object.entries(fieldErrors)) {
+    formatted[field] = messages[0];
+  }
+  return formatted;
+}
+
+/* ------------------------------------------------------------
+   @desc    Create a new place (only for hosts)
+   @route   POST /api/places
+   @access  Private
+------------------------------------------------------------ */
 export const createPlace = async (req, res) => {
   try {
     if (req.user.role !== "host") {
-      return res.status(403).json({ error: "Only hosts can create places" });
+      return res.status(403).json({
+        success: false,
+        message: "Only hosts can create places",
+      });
     }
 
     const parsed = placeSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: parsed.error.errors });
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: formatZodErrors(parsed.error),
+      });
     }
 
     const place = await Place.create({
@@ -40,39 +61,67 @@ export const createPlace = async (req, res) => {
       ...parsed.data,
     });
 
-    res.status(201).json(place);
+    res.status(201).json({
+      success: true,
+      message: "Place created successfully",
+      data: place,
+    });
   } catch (err) {
     console.error("Error creating place:", err);
-    res.status(500).json({ error: "Failed to create place" });
+    res.status(500).json({
+      success: false,
+      message: "Failed to create place",
+      error: err.message,
+    });
   }
 };
 
-/**
- * @desc Edit an existing place (only by the owner)
- * @route PUT /api/places/:id
- * @access Private
- */
+/* ------------------------------------------------------------
+   @desc    Edit an existing place
+   @route   PUT /api/places/:id
+   @access  Private
+------------------------------------------------------------ */
 export const editPlace = async (req, res) => {
   try {
     const place = await Place.findById(req.params.id);
-    if (!place) return res.status(404).json({ error: "Place not found" });
+    if (!place) {
+      return res.status(404).json({
+        success: false,
+        message: "Place not found",
+      });
+    }
 
     if (place.owner.toString() !== req.user.id) {
-      return res.status(403).json({ error: "Not allowed" });
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to edit this place",
+      });
     }
 
     const parsed = placeSchema.partial().safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: parsed.error.errors });
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: formatZodErrors(parsed.error),
+      });
     }
 
     Object.assign(place, parsed.data);
     await place.save();
 
-    res.json(place);
+    res.json({
+      success: true,
+      message: "Place updated successfully",
+      data: place,
+    });
   } catch (err) {
     console.error("Error editing place:", err);
-    res.status(500).json({ error: "Failed to edit place" });
+    res.status(500).json({
+      success: false,
+      message: "Failed to edit place",
+      error: err.message,
+    });
   }
 };
 

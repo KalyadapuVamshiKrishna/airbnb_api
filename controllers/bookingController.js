@@ -25,39 +25,74 @@ export const createBooking = async (req, res) => {
       name,
       phone,
       paymentMethod,
-      transactionId, // Added this field
-      totalPrice, // Added this field from frontend
-      userName, // Added this field from frontend
-      userEmail, // Added this field from frontend
+      transactionId,
+      totalPrice,
+      userName,
+      userEmail,
     } = req.body;
 
+    // ---------------- VALIDATION BLOCK ----------------
     if (!type || !itemId || !numberOfGuests || !name || !phone || !paymentMethod) {
       return res.status(400).json({ success: false, error: "Missing required fields" });
     }
+
+    // Validate phone number (Indian format: 10 digits, starting 6-9)
+    const phoneRegex = /^[6-9]\d{9}$/;
+    if (!phoneRegex.test(phone)) {
+      return res.status(400).json({ success: false, error: "Invalid phone number format. Must be a 10-digit valid Indian number." });
+    }
+
+    // Validate name (min 2 chars, alphabetic)
+    const nameRegex = /^[A-Za-z\s]{2,}$/;
+    if (!nameRegex.test(name)) {
+      return res.status(400).json({ success: false, error: "Name must contain only letters and be at least 2 characters long." });
+    }
+
+    // Validate number of guests
+    if (isNaN(numberOfGuests) || numberOfGuests <= 0) {
+      return res.status(400).json({ success: false, error: "Invalid number of guests" });
+    }
+
+    // Additional date validation for places
+    if (type === "place") {
+      if (!checkIn || !checkOut) {
+        return res.status(400).json({ success: false, error: "Check-in and check-out dates are required" });
+      }
+
+      const checkInDate = new Date(checkIn);
+      const checkOutDate = new Date(checkOut);
+
+      if (isNaN(checkInDate) || isNaN(checkOutDate)) {
+        return res.status(400).json({ success: false, error: "Invalid check-in/check-out date format" });
+      }
+
+      if (checkOutDate <= checkInDate) {
+        return res.status(400).json({ success: false, error: "Check-out date must be after check-in date" });
+      }
+    }
+
+    // ---------------------------------------------------
 
     let itemDetails;
     let price = 0;
 
     switch (type) {
       case "place": {
-        if (!checkIn || !checkOut) {
-          return res.status(400).json({ success: false, error: "Check-in/out required" });
-        }
-
         itemDetails = await Place.findById(itemId);
         if (!itemDetails) return res.status(404).json({ success: false, error: "Place not found" });
 
         const overlappingBooking = await Booking.findOne({
           place: itemId,
-          status: BOOKING_STATUS.CONFIRMED,
+          status: "confirmed",
           $or: [
             { checkIn: { $lt: checkOut, $gte: checkIn } },
             { checkOut: { $lte: checkOut, $gt: checkIn } },
             { checkIn: { $lte: checkIn }, checkOut: { $gte: checkOut } },
           ],
         });
+
         if (overlappingBooking) {
-          return res.status(400).json({ success: false, error: "Place already booked" });
+          return res.status(400).json({ success: false, error: "Place already booked for selected dates" });
         }
 
         const oneDay = 1000 * 60 * 60 * 24;
@@ -66,19 +101,20 @@ export const createBooking = async (req, res) => {
         break;
       }
 
+      // experience & service remain unchanged...
       case "experience": {
         if (!date) return res.status(400).json({ success: false, error: "Date required" });
-        itemDetails = await Experience.findById(itemId);
-        if (!itemDetails) return res.status(404).json({ success: false, error: "Experience not found" });
-        price = itemDetails.price * numberOfGuests; // Fixed: multiply by numberOfGuests
+        const item = await Experience.findById(itemId);
+        if (!item) return res.status(404).json({ success: false, error: "Experience not found" });
+        price = item.price * numberOfGuests;
         break;
       }
 
       case "service": {
         if (!date) return res.status(400).json({ success: false, error: "Date required" });
-        itemDetails = await Service.findById(itemId);
-        if (!itemDetails) return res.status(404).json({ success: false, error: "Service not found" });
-        price = itemDetails.price * numberOfGuests; // Fixed: multiply by numberOfGuests
+        const item = await Service.findById(itemId);
+        if (!item) return res.status(404).json({ success: false, error: "Service not found" });
+        price = item.price * numberOfGuests;
         break;
       }
 
@@ -86,7 +122,7 @@ export const createBooking = async (req, res) => {
         return res.status(400).json({ success: false, error: "Invalid booking type" });
     }
 
-    const serviceFee = Math.max(50, +(price * 0.05).toFixed(2)); // Fixed: use Math.max for minimum fee
+    const serviceFee = Math.max(50, +(price * 0.05).toFixed(2));
     const totalAmount = price + serviceFee;
 
     const bookingData = {
@@ -99,23 +135,19 @@ export const createBooking = async (req, res) => {
       totalAmount,
       address: itemDetails.address || "",
       paymentMethod,
-      status: BOOKING_STATUS.CONFIRMED, // Auto-confirm for demo
+      status: "confirmed",
       user: req.user ? req.user.id : null,
-      transactionId: transactionId || `TXN-${Date.now()}-${Math.floor(Math.random() * 100000)}`, // Fixed transaction ID generation
+      transactionId: transactionId || `TXN-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
     };
 
     if (type === "place") {
       bookingData.place = itemId;
       bookingData.checkIn = checkIn;
       bookingData.checkOut = checkOut;
-    } else if (type === "experience") {
+    } else {
       bookingData.item = itemId;
-      bookingData.itemModel = "Experience";
       bookingData.date = date;
-    } else if (type === "service") {
-      bookingData.item = itemId;
-      bookingData.itemModel = "Service";
-      bookingData.date = date;
+      bookingData.itemModel = type === "experience" ? "Experience" : "Service";
     }
 
     const booking = await Booking.create(bookingData);
@@ -125,6 +157,7 @@ export const createBooking = async (req, res) => {
     res.status(500).json({ success: false, error: error.message || "Booking failed" });
   }
 };
+
 
 // ------------------- INITIATE PAYMENT -------------------
 export const initiatePayment = async (req, res) => {
