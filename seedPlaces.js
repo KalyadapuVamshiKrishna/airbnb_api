@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import dotenv from "dotenv";
+import process from "process";
 import { faker } from "@faker-js/faker";
 import Place from "./models/Place.js";
 import User from "./models/User.js";
@@ -8,7 +9,7 @@ dotenv.config();
 
 const MONGO_URL = process.env.MONGO_URL;
 
-// ✅ House Images
+// ================ IMAGE POOLS ==================
 const houseImages = [
   "https://plus.unsplash.com/premium_photo-1689609950112-d66095626efb?w=600&auto=format&fit=crop&q=60",
   "https://images.unsplash.com/photo-1518780664697-55e3ad937233?w=600&auto=format&fit=crop&q=60",
@@ -19,7 +20,6 @@ const houseImages = [
   "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=600&auto=format&fit=crop&q=60",
 ];
 
-// ✅ Interior Images
 const interiorImages = [
   "https://plus.unsplash.com/premium_photo-1671269941569-7841144ee4e0?w=600&auto=format&fit=crop&q=60",
   "https://images.unsplash.com/photo-1599696848652-f0ff23bc911f?w=600&auto=format&fit=crop&q=60",
@@ -29,12 +29,10 @@ const interiorImages = [
   "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=600&auto=format&fit=crop&q=60",
 ];
 
-// ✅ Helper: Get random interiors
 function getRandomInteriors(count = 2) {
   return [...interiorImages].sort(() => 0.5 - Math.random()).slice(0, count);
 }
 
-// ✅ Perks
 const perksOptions = [
   "WiFi",
   "Free Parking",
@@ -47,7 +45,7 @@ const perksOptions = [
   "Elevator",
 ];
 
-// ✅ Indian Cities & States
+// ================ INDIAN LOCATIONS ==================
 const statesWithCities = {
   Maharashtra: ["Mumbai", "Pune", "Nagpur", "Nashik"],
   Karnataka: ["Bengaluru", "Mysuru", "Mangalore"],
@@ -58,7 +56,7 @@ const statesWithCities = {
   Gujarat: ["Ahmedabad", "Surat", "Vadodara"],
 };
 
-// ✅ Titles (curated)
+// ================ TITLES, DESCRIPTIONS, REVIEWS ===============
 const propertyTitles = [
   "Luxury Beach Villa",
   "Cozy Homestay",
@@ -72,7 +70,6 @@ const propertyTitles = [
   "Lakefront Holiday Home",
 ];
 
-// ✅ Descriptions (curated)
 const propertyDescriptions = [
   "A beautiful stay with modern amenities, close to popular attractions.",
   "Perfect for families and groups, with spacious interiors and a private garden.",
@@ -85,7 +82,6 @@ const propertyDescriptions = [
   "Stay close to beaches and enjoy local seafood and culture.",
 ];
 
-// ✅ Extra Info (curated)
 const extraInfoOptions = [
   "No loud music after 10 PM.",
   "Smoking allowed only in outdoor areas.",
@@ -94,6 +90,21 @@ const extraInfoOptions = [
   "Please switch off AC and lights when not in use.",
   "Breakfast available on request.",
 ];
+
+// Random review sentences
+const reviewTexts = [
+  "Amazing place! Everything was super clean.",
+  "Loved the stay, host was very friendly.",
+  "Great location and beautiful interiors.",
+  "Comfortable stay, would definitely book again.",
+  "Service could improve, but overall a good experience.",
+  "Perfect for a weekend getaway!",
+  "The view was stunning, highly recommended.",
+  "Affordable and cozy, value for money.",
+  "Felt like home, peaceful surroundings.",
+];
+
+// ================ HELPERS ==========================
 
 function generateIndianAddress() {
   const state = faker.helpers.objectKey(statesWithCities);
@@ -110,6 +121,25 @@ function generateIndianAddress() {
   };
 }
 
+function generateRandomReviews() {
+  const count = faker.number.int({ min: 3, max: 12 });
+
+  const reviews = Array.from({ length: count }).map(() => ({
+    user: faker.person.fullName(),
+    rating: faker.number.int({ min: 3, max: 5 }),
+    reviewText: faker.helpers.arrayElement(reviewTexts),
+    createdAt: faker.date.past({ years: 1 }),
+  }));
+
+  const avgRating =
+    reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
+
+  return { reviews, avgRating: Number(avgRating.toFixed(1)) };
+}
+
+// =========================================================
+//                      SEED START
+// =========================================================
 async function seed() {
   try {
     await mongoose.connect(MONGO_URL);
@@ -117,7 +147,7 @@ async function seed() {
 
     const user = await User.findOne();
     if (!user) {
-      console.log("❌ No user found. Please create a user first.");
+      console.log("❌ No user found. Create at least one user.");
       return;
     }
 
@@ -128,6 +158,8 @@ async function seed() {
       const randomPerks = faker.helpers.arrayElements(perksOptions, 3);
       const addressData = generateIndianAddress();
 
+      const { reviews, avgRating } = generateRandomReviews();
+
       return {
         owner: user._id,
         title: faker.helpers.arrayElement(propertyTitles),
@@ -136,21 +168,29 @@ async function seed() {
         state: addressData.state,
         country: "India",
         pincode: addressData.pincode,
+
         photos: [randomHouseImage, ...getRandomInteriors(2)],
+
         description: faker.helpers.arrayElement(propertyDescriptions),
         perks: randomPerks,
         extraInfo: faker.helpers.arrayElement(extraInfoOptions),
+
         checkIn: 12,
         checkOut: 11,
         maxGuests: faker.number.int({ min: 2, max: 8 }),
         price: faker.number.int({ min: 1500, max: 12000 }),
+
         availableFrom: faker.date.future({ years: 0.1 }),
         availableTo: faker.date.future({ years: 0.5 }),
+
+        // ⭐ NEW: Reviews + Rating
+        reviews,
+        rating: avgRating,
       };
     });
 
     await Place.insertMany(places);
-    console.log("✅ 30 curated Indian-style places seeded successfully!");
+    console.log("✅ 60 curated Indian-style places + random reviews seeded!");
     process.exit();
   } catch (error) {
     console.error(error);

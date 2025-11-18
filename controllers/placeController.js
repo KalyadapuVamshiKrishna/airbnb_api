@@ -18,9 +18,7 @@ const placeSchema = z.object({
   checkOut: z.string().min(1, "Check-out time is required"),
   maxGuests: z.number().min(1, "At least 1 guest allowed"),
   price: z.number().min(0, "Price must be positive"),
-  city: z.string().min(1, "City is required"),
-  state: z.string().min(1, "State is required"),
-  country: z.string().min(1, "Country is required"),
+  
 });
 
 // --- Helper to format Zod errors ---
@@ -148,12 +146,12 @@ export const getAllPlaces = async (req, res) => {
     if (location && location.toLowerCase() !== "all locations") {
       const regex = new RegExp(location, "i");
       query.$or = [
-        { city: regex },
-        { state: regex },
-        { country: regex },
+       
         { address: regex },
       ];
     }
+
+
 
     // --- Price filter ---
     if (priceMin || priceMax) {
@@ -168,27 +166,31 @@ export const getAllPlaces = async (req, res) => {
       query.$or = [
         { title: regex },
         { description: regex },
-        { city: regex },
-        { state: regex },
-        { country: regex },
         { address: regex },
       ];
     }
 
     // --- Sorting ---
-    let sortOption = {};
-    switch (sortBy) {
-      case "priceAsc":
-        sortOption = { price: 1 };
-        break;
-      case "priceDesc":
-        sortOption = { price: -1 };
-        break;
-      case "newest":
-      default:
-        sortOption = { createdAt: -1 };
-        break;
-    }
+   let sortOption = {};
+switch (sortBy) {
+  case "priceAsc":
+    sortOption = { price: 1 };
+    break;
+
+  case "priceDesc":
+    sortOption = { price: -1 };
+    break;
+
+  case "topRated":
+    sortOption = { averageRating: -1 }; // ⭐ NEW
+    break;
+
+  case "newest":
+  default:
+    sortOption = { createdAt: -1 };
+    break;
+}
+
 
     // --- Pagination ---
     const pageNum = parseInt(page, 10);
@@ -212,10 +214,12 @@ export const getAllPlaces = async (req, res) => {
       }
     }
 
-    const enrichedPlaces = places.map((p) => ({
-      ...p.toObject(),
-      isFavorite: wishlistSet.has(p._id.toString()),
-    }));
+   const enrichedPlaces = places.map((p) => ({
+  ...p.toObject(),
+  isFavorite: wishlistSet.has(p._id.toString()),
+  reviewCount: p.reviews?.length || 0, // ⭐ NEW
+}));
+
 
     res.json({
       places: enrichedPlaces,
@@ -236,7 +240,9 @@ export const getAllPlaces = async (req, res) => {
  */
 export const getPlaceById = async (req, res) => {
   try {
-    const place = await Place.findById(req.params.id);
+   const place = await Place.findById(req.params.id)
+  .populate("reviews.user", "name");   // ⭐ NEW
+
     if (!place) return res.status(404).json({ error: "Place not found" });
 
     let isFavorite = false;
@@ -247,7 +253,12 @@ export const getPlaceById = async (req, res) => {
         .includes(place._id.toString());
     }
 
-    res.json({ ...place.toObject(), isFavorite });
+    res.json({
+  ...place.toObject(),
+  isFavorite,
+  reviewCount: place.reviews.length,
+});
+
   } catch (err) {
     console.error("Error fetching place:", err);
     res.status(500).json({ error: "Failed to fetch place" });

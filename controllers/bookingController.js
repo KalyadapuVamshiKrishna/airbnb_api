@@ -1,143 +1,66 @@
 import Booking from "../models/Booking.js";
 import Place from "../models/Place.js";
-import Experience from "../models/Experience.js";
-import { Service } from "../models/Service.js";
-import nodemailer from "nodemailer";
-import mongoose from "mongoose"; // Added missing import
 
-// status constants
-const BOOKING_STATUS = {
-  PENDING: "pending",
-  CONFIRMED: "confirmed",
-  CANCELED: "canceled",
-};
+import {
+  BOOKING_STATUS,
+  validateCommonFields,
+  validatePlaceDates,
+  fetchItem,
+  calculatePrice,
+  checkOverlap,
+  sendReceipt,
+  autoExpireBookings,
+} from "../services/booking.service.js";
 
-// ------------------- CREATE BOOKING -------------------
+import mongoose from "mongoose";
+
+/* -------------------------------------------------------
+   CREATE BOOKING
+-------------------------------------------------------- */
 export const createBooking = async (req, res) => {
   try {
-    const {
-      type,
-      itemId,
-      checkIn,
-      checkOut,
-      date,
-      numberOfGuests,
-      name,
-      phone,
-      paymentMethod,
-      transactionId,
-      totalPrice,
-      userName,
-      userEmail,
-    } = req.body;
+    const error = validateCommonFields(req.body);
+    if (error) return res.status(400).json({ success: false, error });
 
-    // ---------------- VALIDATION BLOCK ----------------
-    if (!type || !itemId || !numberOfGuests || !name || !phone || !paymentMethod) {
-      return res.status(400).json({ success: false, error: "Missing required fields" });
-    }
+    const { type, itemId, checkIn, checkOut, date } = req.body;
 
-    // Validate phone number (Indian format: 10 digits, starting 6-9)
-    const phoneRegex = /^[6-9]\d{9}$/;
-    if (!phoneRegex.test(phone)) {
-      return res.status(400).json({ success: false, error: "Invalid phone number format. Must be a 10-digit valid Indian number." });
-    }
-
-    // Validate name (min 2 chars, alphabetic)
-    const nameRegex = /^[A-Za-z\s]{2,}$/;
-    if (!nameRegex.test(name)) {
-      return res.status(400).json({ success: false, error: "Name must contain only letters and be at least 2 characters long." });
-    }
-
-    // Validate number of guests
-    if (isNaN(numberOfGuests) || numberOfGuests <= 0) {
-      return res.status(400).json({ success: false, error: "Invalid number of guests" });
-    }
-
-    // Additional date validation for places
     if (type === "place") {
-      if (!checkIn || !checkOut) {
-        return res.status(400).json({ success: false, error: "Check-in and check-out dates are required" });
-      }
-
-      const checkInDate = new Date(checkIn);
-      const checkOutDate = new Date(checkOut);
-
-      if (isNaN(checkInDate) || isNaN(checkOutDate)) {
-        return res.status(400).json({ success: false, error: "Invalid check-in/check-out date format" });
-      }
-
-      if (checkOutDate <= checkInDate) {
-        return res.status(400).json({ success: false, error: "Check-out date must be after check-in date" });
-      }
+      const dateErr = validatePlaceDates(checkIn, checkOut);
+      if (dateErr)
+        return res.status(400).json({ success: false, error: dateErr });
     }
 
-    // ---------------------------------------------------
+    const itemDoc = await fetchItem(type, itemId);
+    if (!itemDoc)
+      return res.status(404).json({
+        success: false,
+        error: `${type} not found`,
+      });
 
-    let itemDetails;
-    let price = 0;
-
-    switch (type) {
-      case "place": {
-        itemDetails = await Place.findById(itemId);
-        if (!itemDetails) return res.status(404).json({ success: false, error: "Place not found" });
-
-        const overlappingBooking = await Booking.findOne({
-          place: itemId,
-          status: "confirmed",
-          $or: [
-            { checkIn: { $lt: checkOut, $gte: checkIn } },
-            { checkOut: { $lte: checkOut, $gt: checkIn } },
-            { checkIn: { $lte: checkIn }, checkOut: { $gte: checkOut } },
-          ],
+    if (type === "place") {
+      const overlapping = await checkOverlap(itemId, checkIn, checkOut);
+      if (overlapping)
+        return res.status(400).json({
+          success: false,
+          error: "Place already booked for selected dates",
         });
-
-        if (overlappingBooking) {
-          return res.status(400).json({ success: false, error: "Place already booked for selected dates" });
-        }
-
-        const oneDay = 1000 * 60 * 60 * 24;
-        const nights = Math.ceil((new Date(checkOut) - new Date(checkIn)) / oneDay);
-        price = itemDetails.price * nights;
-        break;
-      }
-
-      // experience & service remain unchanged...
-      case "experience": {
-        if (!date) return res.status(400).json({ success: false, error: "Date required" });
-        const item = await Experience.findById(itemId);
-        if (!item) return res.status(404).json({ success: false, error: "Experience not found" });
-        price = item.price * numberOfGuests;
-        break;
-      }
-
-      case "service": {
-        if (!date) return res.status(400).json({ success: false, error: "Date required" });
-        const item = await Service.findById(itemId);
-        if (!item) return res.status(404).json({ success: false, error: "Service not found" });
-        price = item.price * numberOfGuests;
-        break;
-      }
-
-      default:
-        return res.status(400).json({ success: false, error: "Invalid booking type" });
     }
 
-    const serviceFee = Math.max(50, +(price * 0.05).toFixed(2));
-    const totalAmount = price + serviceFee;
+    const pricing = calculatePrice(type, itemDoc, req.body);
 
     const bookingData = {
+      ...pricing,
       type,
-      numberOfGuests,
-      name,
-      phone,
-      price,
-      serviceFee,
-      totalAmount,
-      address: itemDetails.address || "",
-      paymentMethod,
-      status: "confirmed",
-      user: req.user ? req.user.id : null,
-      transactionId: transactionId || `TXN-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+      name: req.body.name,
+      phone: req.body.phone,
+      paymentMethod: req.body.paymentMethod,
+      numberOfGuests: Number(req.body.numberOfGuests),
+      user: req.user?.id || null,
+      status: BOOKING_STATUS.CONFIRMED,
+      transactionId:
+        req.body.transactionId ||
+        `TXN-${Date.now()}-${Math.floor(Math.random() * 99999)}`,
+      address: itemDoc.address || itemDoc.location || "",
     };
 
     if (type === "place") {
@@ -151,324 +74,297 @@ export const createBooking = async (req, res) => {
     }
 
     const booking = await Booking.create(bookingData);
-    res.status(201).json({ success: true, bookingId: booking._id, booking });
-  } catch (error) {
-    console.error("Booking Error:", error);
-    res.status(500).json({ success: false, error: error.message || "Booking failed" });
+
+    res.status(201).json({ success: true, booking });
+  } catch (err) {
+    console.error("createBooking error:", err);
+    res.status(500).json({ success: false, error: err.message || "Server error" });
   }
 };
 
-
-// ------------------- INITIATE PAYMENT -------------------
+/* -------------------------------------------------------
+   INITIATE PAYMENT
+-------------------------------------------------------- */
 export const initiatePayment = async (req, res) => {
   try {
     const { bookingId } = req.body;
+
     if (!bookingId) return res.status(400).json({ success: false, error: "Missing bookingId" });
 
     const booking = await Booking.findById(bookingId);
-    if (!booking) return res.status(404).json({ success: false, error: "Booking not found" });
+    if (!booking)
+      return res.status(404).json({ success: false, error: "Booking not found" });
+
     if (booking.status !== BOOKING_STATUS.PENDING) {
-      return res.status(400).json({ success: false, error: "Booking already paid or canceled" });
+      return res.status(400).json({
+        success: false,
+        error: "Booking not in pending state",
+      });
     }
 
-    // Simulate payment success (80% success rate for demo)
-    const paymentSuccess = Math.random() > 0.2;
-    if (!paymentSuccess) return res.status(402).json({ success: false, error: "Payment failed" });
+    const success = Math.random() > 0.2;
+    if (!success)
+      return res.status(402).json({ success: false, error: "Payment failed" });
 
-    booking.transactionId = `TXN-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
     booking.status = BOOKING_STATUS.CONFIRMED;
+    booking.transactionId = `TXN-${Date.now()}`;
     await booking.save();
 
-    res.json({ success: true, transactionId: booking.transactionId, status: booking.status });
-  } catch (error) {
-    console.error("Payment initiation error:", error);
-    res.status(500).json({ success: false, error: "Payment initiation failed" });
+    res.json({ success: true, transactionId: booking.transactionId });
+  } catch (err) {
+    console.error("initiatePayment error:", err);
+    res.status(500).json({ success: false, error: "Payment failed" });
   }
 };
 
-// ------------------- GET BOOKINGS -------------------
+/* -------------------------------------------------------
+   GET USER BOOKINGS (AUTO EXPIRE)
+-------------------------------------------------------- */
 export const getUserBookings = async (req, res) => {
   try {
+    // Guard: ensure authenticated
     if (!req.user || !req.user.id) {
-      return res.status(401).json({ success: false, error: "User not authenticated" });
+      return res.status(401).json({ success: false, error: "Not authenticated" });
     }
 
     const bookings = await Booking.find({ user: req.user.id })
       .populate("place")
       .populate("item");
-    res.json({ success: true, bookings });
-  } catch (error) {
-    console.error("Get Bookings Error:", error);
-    res.status(500).json({ success: false, error: "Failed to fetch bookings" });
+
+    try {
+      await autoExpireBookings(bookings);
+    } catch (innerErr) {
+      console.error("autoExpireBookings error:", innerErr);
+      // don't fail whole request because of expiry update; continue to return bookings
+    }
+
+    const updated = await Booking.find({ user: req.user.id })
+      .populate("place")
+      .populate("item");
+
+    res.json({ success: true, bookings: updated });
+  } catch (err) {
+    console.error("getUserBookings error:", err);
+    res.status(500).json({ success: false, error: "Failed to fetch bookings: " + (err.message || "") });
   }
 };
 
-// ------------------- GET SINGLE BOOKING -------------------
+/* -------------------------------------------------------
+   GET BOOKING BY ID (AUTO EXPIRE)
+-------------------------------------------------------- */
 export const getBookingById = async (req, res) => {
   try {
     const { id } = req.params;
-    
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ success: false, error: "Invalid booking ID format" });
-    }
 
-    const booking = await Booking.findById(id)
+    if (!mongoose.Types.ObjectId.isValid(id))
+      return res.status(400).json({ success: false, error: "Invalid ID" });
+
+    let booking = await Booking.findById(id)
       .populate("place")
       .populate("item");
-    
-    if (!booking) return res.status(404).json({ success: false, error: "Booking not found" });
-    
+
+    if (!booking)
+      return res.status(404).json({ success: false, error: "Booking not found" });
+
+    try {
+      await autoExpireBookings([booking]);
+    } catch (innerErr) {
+      console.error("autoExpireBookings error on single booking:", innerErr);
+    }
+
+    booking = await Booking.findById(id)
+      .populate("place")
+      .populate("item");
+
     res.json({ success: true, booking });
-  } catch (error) {
-    console.error("Get Booking Error:", error);
-    res.status(500).json({ success: false, error: "Failed to fetch booking" });
+  } catch (err) {
+    console.error("getBookingById error:", err);
+    res.status(500).json({ success: false, error: "Failed to fetch booking: " + (err.message || "") });
   }
 };
 
-// ------------------- CANCEL BOOKING -------------------
+/* -------------------------------------------------------
+   CANCEL BOOKING
+-------------------------------------------------------- */
 export const cancelBooking = async (req, res) => {
   try {
-    const { id } = req.params;
-    
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ success: false, error: "Invalid booking ID format" });
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, error: "Not authenticated" });
     }
 
-    const booking = await Booking.findById(id);
-    if (!booking) return res.status(404).json({ success: false, error: "Booking not found" });
+    const booking = await Booking.findById(req.params.id);
 
-    // Check authorization only if user is logged in
-    if (req.user && booking.user && booking.user.toString() !== req.user.id) {
-      return res.status(403).json({ success: false, error: "Unauthorized action" });
-    }
+    if (!booking)
+      return res.status(404).json({ success: false, error: "Not found" });
 
-    if (booking.status === BOOKING_STATUS.CANCELED) {
-      return res.status(400).json({ success: false, error: "Booking already canceled" });
-    }
+    // safe-check booking.user
+    const bookingUserId = booking.user ? booking.user.toString() : null;
+    if (bookingUserId !== req.user.id)
+      return res.status(403).json({ success: false, error: "Unauthorized" });
+
+    if (booking.status === BOOKING_STATUS.CANCELED)
+      return res
+        .status(400)
+        .json({ success: false, error: "Already canceled" });
 
     booking.status = BOOKING_STATUS.CANCELED;
     await booking.save();
 
-    res.json({ success: true, message: "Booking canceled successfully", booking });
-  } catch (error) {
-    console.error("Cancel Booking Error:", error);
-    res.status(500).json({ success: false, error: "Failed to cancel booking" });
+    res.json({ success: true, booking });
+  } catch (err) {
+    console.error("cancelBooking error:", err);
+    res.status(500).json({ success: false, error: "Cancellation failed: " + (err.message || "") });
   }
 };
 
-// ------------------- REQUEST REFUND -------------------
+/* -------------------------------------------------------
+   REQUEST REFUND
+-------------------------------------------------------- */
 export const requestRefund = async (req, res) => {
   try {
-    const { id } = req.params;
-    
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ success: false, error: "Invalid booking ID format" });
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, error: "Not authenticated" });
     }
 
-    const booking = await Booking.findById(id);
-    if (!booking) return res.status(404).json({ success: false, error: "Booking not found" });
+    const booking = await Booking.findById(req.params.id);
 
-    // Check authorization only if user is logged in
-    if (req.user && booking.user && booking.user.toString() !== req.user.id) {
-      return res.status(403).json({ success: false, error: "Unauthorized action" });
-    }
+    if (!booking)
+      return res.status(404).json({ success: false, error: "Not found" });
 
-    if (booking.status !== BOOKING_STATUS.CANCELED) {
-      return res.status(400).json({ success: false, error: "Only canceled bookings can be refunded" });
-    }
+    const bookingUserId = booking.user ? booking.user.toString() : null;
+    if (bookingUserId !== req.user.id)
+      return res.status(403).json({ success: false, error: "Unauthorized" });
 
-    if (booking.refundRequested) {
-      return res.status(400).json({ success: false, error: "Refund already requested" });
-    }
+    if (booking.status !== BOOKING_STATUS.CANCELED)
+      return res.status(400).json({
+        success: false,
+        error: "Only canceled bookings can be refunded",
+      });
+
+    if (booking.refundRequested)
+      return res
+        .status(400)
+        .json({ success: false, error: "Refund already requested" });
 
     booking.refundRequested = true;
     booking.refundRequestedAt = new Date();
     await booking.save();
 
-    res.json({ success: true, message: "Refund request submitted", booking });
-  } catch (error) {
-    console.error("Refund Request Error:", error);
-    res.status(500).json({ success: false, error: "Refund request failed" });
+    res.json({ success: true, booking });
+  } catch (err) {
+    console.error("requestRefund error:", err);
+    res.status(500).json({ success: false, error: "Failed to request refund: " + (err.message || "") });
   }
 };
 
-// ------------------- SEND RECEIPT EMAIL -------------------
-// controllers/emailController.js
-
-
+/* -------------------------------------------------------
+   SEND RECEIPT EMAIL
+-------------------------------------------------------- */
 export const sendReceiptEmail = async (req, res) => {
   try {
-    const { email, bookingId } = req.body;
+    const booking = await Booking.findById(req.body.bookingId);
+    if (!booking)
+      return res.status(404).json({ success: false, error: "Booking not found" });
 
-    if (!email || !bookingId) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Missing email or bookingId" });
-    }
+    const result = await sendReceipt(req.body.email, booking);
 
-    if (!mongoose.Types.ObjectId.isValid(bookingId)) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid booking ID format" });
-    }
-
-    const booking = await Booking.findById(bookingId)
-      .populate("place")
-      .populate("item");
-
-    if (!booking) {
-      return res
-        .status(404)
-        .json({ success: false, error: "Booking not found" });
-    }
-
-    const subject = "Your Booking Receipt - Domio";
-    const message = `
-      Thank you for your booking with Domio!
-      
-      Booking Details:
-      ----------------
-      Booking ID: ${booking._id}
-      Transaction ID: ${booking.transactionId || "N/A"}
-      Total Paid: ₹${booking.totalAmount}
-      Item: ${
-        booking.type === "place"
-          ? booking.place?.title
-          : booking.item?.title || "N/A"
-      }
-      Guest Name: ${booking.name}
-      Phone: ${booking.phone}
-      Number of Guests: ${booking.numberOfGuests}
-      
-      Thank you for choosing Domio!
-    `;
-
-    // If SMTP is not configured, simulate success
-    if (
-      !process.env.SMTP_HOST ||
-      !process.env.SMTP_USER ||
-      !process.env.SMTP_PASS
-    ) {
-      console.warn("SMTP configuration not found, simulating email send");
-      return res.json({
-        success: true,
-        message: "Receipt sent successfully (simulated)",
-      });
-    }
-
-    // Configure Nodemailer correctly
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: process.env.SMTP_PORT || 587,
-      secure: process.env.SMTP_PORT == 465, // true for port 465
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
+    res.json({
+      success: true,
+      message: result.simulated
+        ? "Email simulated"
+        : "Receipt sent successfully",
     });
-
-    // Verify connection
-    await transporter.verify();
-
-    // Send email
-    await transporter.sendMail({
-      from: '"Domio" <no-reply@domio.com>',
-      to: email,
-      subject,
-      text: message,
-    });
-
-    res.json({ success: true, message: "Receipt sent successfully" });
-  } catch (error) {
-    console.error("Send email error:", error);
-    res.status(500).json({ success: false, error: "Failed to send receipt" });
+  } catch (err) {
+    console.error("sendReceiptEmail error:", err);
+    res.status(500).json({ success: false, error: "Email failed: " + (err.message || "") });
   }
 };
 
-// ------------------- VERIFY BOOKING -------------------
+/* -------------------------------------------------------
+   VERIFY BOOKING (PAYMENT SUCCESS PAGE)
+-------------------------------------------------------- */
 export const verifyBooking = async (req, res) => {
   try {
-    const { tx } = req.query;
-
-    if (!tx) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Missing transaction reference" });
-    }
-
-    const bookingDoc = await Booking.findOne({ transactionId: tx })
+    const booking = await Booking.findOne({
+      transactionId: req.query.tx,
+    })
       .populate("place")
       .populate("item");
 
-    if (!bookingDoc) {
-      return res.status(404).json({ success: false, error: "Booking not found" });
-    }
+    if (!booking)
+      return res.status(404).json({ success: false, error: "Not found" });
 
-    const responseBooking = {
-      _id: bookingDoc._id,
-      type: bookingDoc.type,
-      status: bookingDoc.status,
-      transactionId: bookingDoc.transactionId,
-      name: bookingDoc.name,
-      phone: bookingDoc.phone,
-      numberOfGuests: bookingDoc.numberOfGuests,
-      price: bookingDoc.price || 0,
-      serviceFee: bookingDoc.serviceFee || 0,
-      totalAmount: bookingDoc.totalAmount || 0,
-      paymentMethod: bookingDoc.paymentMethod || "N/A",
-      checkIn: bookingDoc.checkIn || null,
-      checkOut: bookingDoc.checkOut || null,
-      date: bookingDoc.date || null,
-      refundRequested: bookingDoc.refundRequested || false,
-      refundRequestedAt: bookingDoc.refundRequestedAt || null,
-      createdAt: bookingDoc.createdAt,
-      place: bookingDoc.place || null,
-      item: bookingDoc.item || null,
-      address: bookingDoc.address || null,
-    };
-
-    res.json({ success: true, booking: responseBooking });
-  } catch (error) {
-    console.error("Verify booking error:", error);
-    res.status(500).json({ success: false, error: "Failed to verify booking" });
+    res.json({ success: true, booking });
+  } catch (err) {
+    console.error("verifyBooking error:", err);
+    res.status(500).json({ success: false, error: "Verification failed: " + (err.message || "") });
   }
 };
 
-
-// ------------------- FETCH ITEM DETAILS -------------------
+/* -------------------------------------------------------
+   GET ITEM DETAILS (PLACE / EXPERIENCE / SERVICE)
+-------------------------------------------------------- */
 export const getItemDetails = async (req, res) => {
   try {
-    const { type, id } = req.params;
-    if (!type || !id) {
-      return res.status(400).json({ success: false, error: "Missing type or id" });
-    }
+    const item = await fetchItem(req.params.type, req.params.id);
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ success: false, error: "Invalid ID format" });
-    }
-
-    let item;
-    switch (type) {
-      case "place":
-        item = await Place.findById(id);
-        break;
-      case "experience":
-        item = await Experience.findById(id);
-        break;
-      case "service":
-        item = await Service.findById(id);
-        break;
-      default:
-        return res.status(400).json({ success: false, error: "Invalid type. Must be 'place', 'experience', or 'service'" });
-    }
-
-    if (!item) {
-      return res.status(404).json({ success: false, error: `${type.charAt(0).toUpperCase() + type.slice(1)} not found` });
-    }
+    if (!item)
+      return res.status(404).json({ success: false, error: "Not found" });
 
     res.json({ success: true, item });
-  } catch (error) {
-    console.error("Get item details error:", error);
-    res.status(500).json({ success: false, error: "Failed to fetch item details" });
+  } catch (err) {
+    console.error("getItemDetails error:", err);
+    res.status(500).json({ success: false, error: "Failed to fetch item: " + (err.message || "") });
+  }
+};
+
+/* -------------------------------------------------------
+   SUBMIT REVIEW (ONLY AFTER CHECKOUT)
+-------------------------------------------------------- */
+export const submitReview = async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, error: "Not authenticated" });
+    }
+
+    const { id } = req.params;
+    const { rating, reviewText } = req.body;
+
+    const booking = await Booking.findById(id);
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+
+    const bookingUserId = booking.user ? booking.user.toString() : null;
+    if (bookingUserId !== req.user.id)
+      return res.status(403).json({ error: "Unauthorized" });
+
+    // Ensure stay is completed (or expired)
+    const checkoutDate = booking.checkOut ? new Date(booking.checkOut) : null;
+    if (!checkoutDate || checkoutDate > new Date())
+      return res.status(400).json({ error: "Stay not completed yet" });
+
+    // Mark booking as reviewed
+    booking.reviewSubmitted = true;
+    booking.reviewRating = rating;
+    booking.reviewText = reviewText;
+    await booking.save();
+
+    // Save review to place (if place exists)
+    if (booking.place) {
+      const place = await Place.findById(booking.place);
+      if (place) {
+        place.reviews = place.reviews || [];
+        place.reviews.push({
+          user: booking.user,
+          rating,
+          reviewText,
+        });
+        await place.save();
+      }
+    }
+
+    res.json({ success: true, message: "Review submitted!", booking });
+  } catch (err) {
+    console.error("submitReview error:", err);
+    res.status(500).json({ error: "Review failed: " + (err.message || "") });
   }
 };

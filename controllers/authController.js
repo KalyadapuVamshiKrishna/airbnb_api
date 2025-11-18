@@ -129,7 +129,20 @@ export const stats = async (req, res) => {
 
 // ====================== LOGOUT ======================
 export const logout = (req, res) => {
-  res.clearCookie("token", { httpOnly: true, path: "/" });
+  res.cookie("accessToken", "", {
+  httpOnly: true,
+  sameSite: "none",
+  secure: true,
+  expires: new Date(0),
+});
+
+res.cookie("refreshToken", "", {
+  httpOnly: true,
+  sameSite: "none",
+  secure: true,
+  expires: new Date(0),
+});
+
   res.json({ success: true, message: "Logged out successfully" });
 };
 

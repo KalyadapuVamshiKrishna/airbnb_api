@@ -8,7 +8,9 @@ import {
   initiatePayment,
   sendReceiptEmail,
   verifyBooking,
-  getItemDetails
+  getItemDetails,
+  submitReview,
+  
 } from "../controllers/bookingController.js";
 import { requireAuth } from "../middlewares/auth.js";
 
@@ -27,6 +29,7 @@ router.get("/bookings", requireAuth, getUserBookings);
 router.get("/bookings/:id", requireAuth, getBookingById);
 router.delete("/bookings/:id", requireAuth, cancelBooking);
 router.post("/bookings/:id/refund", requireAuth, requestRefund);
+router.post("/bookings/:id/review", requireAuth, submitReview);
 
 // Item details
 router.get("/items/:type/:id", getItemDetails); // type = place/experience/service
