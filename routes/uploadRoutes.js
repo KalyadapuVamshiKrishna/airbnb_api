@@ -8,9 +8,9 @@ const router = express.Router();
 
 // Cloudinary config (make sure you set these env variables)
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
+  cloud_name: globalThis.process?.env.CLOUDINARY_CLOUD_NAME,
+  api_key: globalThis.process?.env.CLOUDINARY_API_KEY,
+  api_secret: globalThis.process?.env.CLOUDINARY_API_SECRET,
 });
 
 // Upload by link

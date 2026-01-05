@@ -18,9 +18,9 @@ dotenv.config();
 const app = express();
 
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
+  cloud_name: globalThis.process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: globalThis.process.env.CLOUDINARY_API_KEY,
+  api_secret: globalThis.process.env.CLOUDINARY_API_SECRET,
 });
 
 const allowedOrigins = [
@@ -101,9 +101,9 @@ app.use((err, req, res, next) => {
 // Connect to MongoDB and start server
 async function startServer() {
   try {
-    await mongoose.connect(process.env.MONGO_URL);
+    await mongoose.connect(globalThis.process.env.MONGO_URL);
     console.log("MongoDB connected");
-    const PORT = process.env.PORT || 4000;
+    const PORT = globalThis.process.env.PORT || 4000;
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   } catch (err) {
     console.error("Failed to connect to MongoDB", err);

@@ -1,11 +1,12 @@
 // scripts/seedExperiences.js
+import process from "process";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import { faker } from "@faker-js/faker";
-import Experience from "../api/models/Experience.js"; // adjust path to your model
+import Experience from "./models/Experience.js";
 
 dotenv.config();
-const MONGO_URL = process.env.MONGO_URL || "mongodb://localhost:27017/airbnb-clone";
+const MONGO_URL = process.env.MONGO_URL;
 
 /* ---------- Provided images, categories & locations ---------- */
 const experienceImages = [
@@ -82,7 +83,8 @@ function generateReviews(min = 6, max = 120) {
   const count = faker.number.int({ min, max });
   return Array.from({ length: count }).map(() => ({
     user: {
-      name: `${faker.name.firstName()} ${faker.name.lastName()}`,
+      // UPDATED: faker.name -> faker.person
+      name: `${faker.person.firstName()} ${faker.person.lastName()}`,
       avatar: `https://i.pravatar.cc/150?img=${faker.number.int({ min: 1, max: 70 })}`
     },
     rating: faker.number.int({ min: 3, max: 5 }),
@@ -91,7 +93,6 @@ function generateReviews(min = 6, max = 120) {
     createdAt: new Date(Date.now() - faker.number.int({ min: 0, max: 365 }) * 24 * 60 * 60 * 1000).toISOString()
   }));
 }
-
 function ratingSummaryFrom(reviews) {
   const counts = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
   const total = reviews.reduce((s, r) => {
@@ -116,76 +117,64 @@ function generateAvailability() {
 
 /* ---------- Main generator ---------- */
 function generateExperienceObject() {
-  const category = pickRandom(categories);
   const location = pickRandom(locations);
   const city = location.split(",")[0];
-  const duration = getDurationHours();
-  const photosCount = faker.number.int({ min: 1, max: 5 });
-  const photos = getRandomImages(photosCount);
+  const category = pickRandom(categories);
+  const title = faker.lorem.words(faker.number.int({ min: 3, max: 6 }));
+  const slug = slugify(title);
+  const { hours, label: durationLabel } = getDurationHours();
   const reviews = generateReviews();
-  const ratingSummary = ratingSummaryFrom(reviews);
-
-  const hostName = `${faker.name.firstName()} ${faker.name.lastName()}`;
+  const { avg, counts, totalReviews } = ratingSummaryFrom(reviews);
+  const hostName = `${faker.person.firstName()} ${faker.person.lastName()}`;
 
   return {
-    title: `${category} • ${faker.lorem.words(faker.number.int({ min: 2, max: 5 }))}`,
-    slug: slugify(`${category} ${city} ${faker.word.adjective() || faker.lorem.word()}`),
-    shortTitle: `${category} in ${city}`,
-    description: faker.lorem.paragraphs(faker.number.int({ min: 1, max: 3 })),
+    title,
+    slug,
+    shortTitle: title,
+    description: faker.lorem.paragraphs(2),
     location,
     coordinates: {
-      lat: parseFloat(faker.location.latitude()),
-      lng: parseFloat(faker.location.longitude())
+      lat: faker.location.latitude(),
+      lng: faker.location.longitude()
     },
     category,
-    tags: pickRandom(["local-favorite", "family-friendly", "offbeat", "romantic", "thrilling", "photo-friendly", "seasonal"], faker.number.int({ min: 1, max: 3 })),
-    price: faker.number.int({ min: 500, max: 8000 }),
+    tags: [category, ...faker.lorem.words(3).split(" ")],
+    photos: getRandomImages(faker.number.int({ min: 3, max: 6 })),
+    coverPhoto: pickRandom(experienceImages),
+    price: faker.number.int({ min: 500, max: 5000 }),
     currency: "INR",
-    duration: duration.label,
-    durationHours: duration.hours,
-    maxGuests: faker.number.int({ min: 2, max: 20 }),
-    minAge: faker.number.int({ min: 0, max: 16 }) > 12 ? 12 : 0, // sometimes child-friendly
-    cancellationPolicy: pickRandom(["Flexible", "Moderate", "Strict"]),
-    languages: pickRandom(["English", "Hindi", "Tamil", "Telugu", "French", "Spanish"], faker.number.int({ min: 1, max: 2 })),
-    photos,
-    coverPhoto: photos[0],
+    duration: durationLabel,
+    durationHours: hours,
+    maxGuests: faker.number.int({ min: 2, max: 15 }),
+    minAge: faker.number.int({ min: 5, max: 18 }),
+    cancellationPolicy: "Flexible",
+    languages: ["English", "Hindi"],
     amenities: {
-      snacksProvided: randomBool(0.4),
-      transportIncluded: randomBool(0.25),
-      ticketsIncluded: randomBool(0.15),
-      wheelchairAccessible: randomBool(0.12),
-      kidFriendly: randomBool(0.35)
+      wifi: randomBool(),
+      food: randomBool(),
+      transport: randomBool()
     },
     host: {
       name: hostName,
       avatar: `https://i.pravatar.cc/150?img=${faker.number.int({ min: 1, max: 70 })}`,
-      bio: faker.lorem.sentences(2),
-      isSuperhost: randomBool(0.12)
+      bio: faker.lorem.sentence(),
+      isSuperhost: randomBool(0.3)
     },
-    itinerary: generateItinerary(duration.hours),
-    reviews, // full review array
-    rating: ratingSummary.avg,
-    reviewsCount: ratingSummary.totalReviews,
-    ratingBreakdown: ratingSummary.counts,
+    itinerary: generateItinerary(hours),
+    reviews,
+    rating: avg,
+    reviewsCount: totalReviews,
+    ratingBreakdown: counts,
     availability: generateAvailability(),
-    highlights: pickRandom([
-      "Local expert guide",
-      "Small group (max 12)",
-      "All equipment provided",
-      "Family friendly",
-      "Photographer on request",
-      "All-ages welcome"
-    ], faker.number.int({ min: 1, max: 2 })),
-    meetingPoint: `${faker.address.streetAddress()}, ${city}`,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    highlights: [faker.lorem.sentence(), faker.lorem.sentence()],
+    meetingPoint: `${faker.location.streetAddress()}, ${city}`
   };
 }
 
 /* ---------- DB seeding logic ---------- */
 async function seedExperiences(num = 60) {
   try {
-    await mongoose.connect(MONGO_URL, { dbName: "airbnb-clone" });
+    await mongoose.connect(MONGO_URL);
     console.log("Connected to MongoDB:", MONGO_URL);
 
     await Experience.deleteMany();
